@@ -5,24 +5,18 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     env:
-      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
-      NOTION_PAGE: ${{ secrets.NOTION_PAGE }}
       WEREAD_COOKIE: ${{ secrets.WEREAD_COOKIE }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - name: deps
+      - name: weread cookie check
         run: |
-          python -m pip install -q --upgrade pip
-          pip install -q -r requirements.txt
-      - name: diag
-        run: |
-          python -V
-          echo "--- which book"; which book; head -3 "$(which book)"
-          echo "--- pkg"; pip show weread2notionpro | head -3
-          echo "--- env lens"; python -c "import os;print({k:len(os.getenv(k) or '') for k in ['NOTION_TOKEN','NOTION_PAGE','WEREAD_COOKIE']})"
-          echo "--- import"; python -u -c "import weread2notionpro.book as b; print('module ok', b.__file__)"
-          echo "--- run book"; book; echo "book_rc=$?"
-          echo "--- run weread"; weread; echo "weread_rc=$?"
+          python - <<'PY'
+          import os, requests
+          ck = os.getenv("WEREAD_COOKIE") or ""
+          print("cookie_len:", len(ck))
+          for url in ["https://i.weread.qq.com/user/notebooks", "https://i.weread.qq.com/shelf/sync?synckey=0&teenmode=0&album=1&onlyBookid=0"]:
+              try:
+                  r = requests.get(url, headers={"Cookie": ck}, timeout=20)
+                  print(url, "->", r.status_code, "| len", len(r.text), "| head", r.text[:120].replace("\n"," "))
+              except Exception as e:
+                  print(url, "-> EXC", type(e).__name__)
+          PY
