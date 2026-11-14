@@ -12,11 +12,14 @@ from dotenv import load_dotenv
 load_dotenv()
 WEREAD_URL = "https://weread.qq.com/"
 WEREAD_NOTEBOOKS_URL = "https://i.weread.qq.com/user/notebooks"
-WEREAD_BOOKMARKLIST_URL = "https://i.weread.qq.com/book/bookmarklist"
-WEREAD_CHAPTER_INFO = "https://i.weread.qq.com/book/chapterInfos"
-WEREAD_READ_INFO_URL = "https://i.weread.qq.com/book/readinfo"
-WEREAD_REVIEW_LIST_URL = "https://i.weread.qq.com/review/list"
-WEREAD_BOOK_INFO = "https://i.weread.qq.com/book/info"
+# i.weread.qq.com（移动端老接口）已不再接受网页扫码登录的 cookie，一律 401 -2012；
+# 网页端同名接口继续可用，因此统一改走 /web/*：
+WEREAD_SHELF_URL = "https://weread.qq.com/web/shelf/sync"
+WEREAD_BOOKMARKLIST_URL = "https://weread.qq.com/web/book/bookmarklist"
+WEREAD_CHAPTER_INFO = "https://weread.qq.com/web/book/chapterInfos"
+WEREAD_READ_INFO_URL = "https://weread.qq.com/web/book/readinfo"
+WEREAD_REVIEW_LIST_URL = "https://weread.qq.com/web/review/list"
+WEREAD_BOOK_INFO = "https://weread.qq.com/web/book/info"
 WEREAD_READDATA_DETAIL = "https://i.weread.qq.com/readdata/detail"
 WEREAD_HISTORY_URL = "https://i.weread.qq.com/readdata/summary?synckey=0"
 
@@ -75,7 +78,8 @@ class WeReadApi:
     def get_bookshelf(self):
         self.session.get(WEREAD_URL)
         r = self.session.get(
-            "https://i.weread.qq.com/shelf/sync?synckey=0&teenmode=0&album=1&onlyBookid=0"
+            WEREAD_SHELF_URL,
+            params=dict(synckey=0, teenmode=0, album=1, onlyBookid=0),
         )
         if r.ok:
             return r.json()
@@ -88,12 +92,18 @@ class WeReadApi:
         if( errcode== -2012 or errcode==-2010):
             print(f"::error::微信读书Cookie过期了，请参考文档重新设置。https://mp.weixin.qq.com/s/B_mqLUZv7M1rmXRsMlBf7A")
 
-    @retry(stop_max_attempt_number=3, wait_fixed=5000)
     def get_notebooklist(self):
-        """获取笔记本列表"""
+        """获取笔记本列表（i.weread 手机接口已不接受网页 cookie，失败时降级为空表）"""
         self.session.get(WEREAD_URL)
-        r = self.session.get(WEREAD_NOTEBOOKS_URL)
-        if r.ok:
+        try:
+            r = self.session.get(WEREAD_NOTEBOOKS_URL, timeout=20)
+        except Exception as e:
+            print(f"::warning::notebook list 请求异常，跳过：{e}")
+            return []
+        if not r.ok:
+            print(f"::warning::notebook list 不可用（HTTP {r.status_code}），本次只用书架数据：{r.text[:120]}")
+            return []
+        if True:
             data = r.json()
             books = data.get("books")
             books.sort(key=lambda x: x["sort"])
@@ -125,7 +135,7 @@ class WeReadApi:
         if r.ok:
             with open("bookmark.json","w") as f:
                 f.write(json.dumps(r.json(),indent=4,ensure_ascii=False))
-            bookmarks = r.json().get("updated")
+            bookmarks = r.json().get("updated") or []
             return bookmarks
         else:
             errcode = r.json().get("errcode",0)
