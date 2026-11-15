@@ -1,4 +1,5 @@
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timezone
 from datetime import timedelta
 import os
 
@@ -100,5 +101,47 @@ def main():
                 insert_to_notion(page_id=id, timestamp=timestamp, duration=value)
     for key, value in readTimes.items():
         insert_to_notion(None, int(key), value)
+    backfill_from_read_records()
+
+def backfill_from_read_records():
+    """readTimes 里没有（或为 0）的日子，用「阅读记录」补齐。
+
+    背景：2025-04 之后同步断过一次，日表有 68 天缺失、5 天被写成 0，
+    而阅读记录里逐书数据还在。只信 readTimes 的话，日/周/月/年 汇总会比明细少 6 万多分钟。
+    """
+    days = {}
+    for r in notion_helper.query_all(database_id=notion_helper.day_database_id):
+        p = r["properties"]
+        ts = p["时间戳"].get("number")
+        if ts is None:
+            continue
+        days[int(ts)] = (r["id"], p["时长"].get("number") or 0)
+    rec = defaultdict(int)
+    for r in notion_helper.query_all(database_id=notion_helper.read_database_id):
+        p = r["properties"]
+        d = p["日期"].get("date")
+        if not d:
+            continue
+        rec[d["start"][:10]] += p["时长"].get("number") or 0
+    filled = created = 0
+    for day_str, minutes in sorted(rec.items()):
+        if minutes <= 0:
+            continue
+        ts = int(
+            datetime.strptime(day_str, "%Y-%m-%d")
+            .replace(tzinfo=timezone(timedelta(hours=8)))
+            .timestamp()
+        )
+        cur = days.get(ts)
+        if cur is None:
+            insert_to_notion(None, ts, minutes)
+            created += 1
+        elif cur[1] == 0:
+            insert_to_notion(page_id=cur[0], timestamp=ts, duration=minutes)
+            filled += 1
+    if filled or created:
+        print(f"阅读记录兜底：改值 {filled} 天、新建 {created} 天")
+
+
 if __name__ == "__main__":
     main()
