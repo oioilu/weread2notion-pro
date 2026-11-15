@@ -109,13 +109,15 @@ def backfill_from_read_records():
     背景：2025-04 之后同步断过一次，日表有 68 天缺失、5 天被写成 0，
     而阅读记录里逐书数据还在。只信 readTimes 的话，日/周/月/年 汇总会比明细少 6 万多分钟。
     """
+    # 按「日期」而不是时间戳对齐：同一自然日在库里可能有两个相差 8 小时的时间戳，
+    # 按时间戳比对会重复建行（曾因此多出 17 组重复日期）
     days = {}
     for r in notion_helper.query_all(database_id=notion_helper.day_database_id):
         p = r["properties"]
-        ts = p["时间戳"].get("number")
-        if ts is None:
+        d = (p["日期"].get("date") or {}).get("start")
+        if not d:
             continue
-        days[int(ts)] = (r["id"], p["时长"].get("number") or 0)
+        days[d[:10]] = (r["id"], p["时长"].get("number") or 0)
     rec = defaultdict(int)
     for r in notion_helper.query_all(database_id=notion_helper.read_database_id):
         p = r["properties"]
@@ -132,7 +134,7 @@ def backfill_from_read_records():
             .replace(tzinfo=timezone(timedelta(hours=8)))
             .timestamp()
         )
-        cur = days.get(ts)
+        cur = days.get(day_str)
         if cur is None:
             insert_to_notion(None, ts, minutes)
             created += 1
