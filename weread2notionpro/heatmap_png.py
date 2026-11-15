@@ -215,7 +215,9 @@ def publish(token, page_id, path):
     body = {"type": "file_upload", "file_upload": {"id": up_id},
             "caption": [{"type": "text", "text": {"content": MARK}}]}
     if ours:
-        api("PATCH", f"/blocks/{ours}", token, {"image": body})
+        # 更新块时 image 里不能带 type（Notion 校验：body.image.type should be not present）
+        api("PATCH", f"/blocks/{ours}", token,
+            {"image": {k: v for k, v in body.items() if k != "type"}})
         action = f"更新图片块 {ours[:8]}"
     else:
         api("PATCH", f"/blocks/{stale_parent}/children", token, {"children": [{"type": "image", "image": body}]})
@@ -229,9 +231,10 @@ def resolve():
     """从 NotionHelper 拿页面与「阅读记录」库。"""
     from weread2notionpro.notion_helper import NotionHelper
     nh = NotionHelper()
-    if not nh.page_id or not nh.read_database_id:
-        raise SystemExit("环境变量里找不到页面或阅读记录库")
-    return nh.page_id, nh.read_database_id
+    # 用「日」表：它是逐日分钟数的准绳（阅读记录只作兜底来源）
+    if not nh.page_id or not nh.day_database_id:
+        raise SystemExit("环境变量里找不到页面或日表")
+    return nh.page_id, nh.day_database_id
 
 
 def main():
